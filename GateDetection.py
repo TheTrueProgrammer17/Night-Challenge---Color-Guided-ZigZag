@@ -4,7 +4,7 @@ import numpy as np
 # =========================
 # Assigned Color
 # =========================
-ASSIGNED_COLOR = "yellow"   # Change this to "red", "green", or "yellow" as needed
+ASSIGNED_COLOR = "blue"   # Change this to "red", "green", or "yellow" as needed
 
 # =========================
 # HSV Color Ranges
@@ -24,6 +24,13 @@ COLOR_RANGES = {
         (np.array([20, 100, 100]), np.array([35, 255, 255]))
     ]
 }
+
+# =========================
+# Distance Calibration
+# =========================
+KNOWN_DISTANCE = 150.0      # cm (distance at which you calibrate)
+REAL_GATE_WIDTH = 100.0     # cm (1 meter gate width)
+FOCAL_LENGTH = None         # will be calculated once
 
 # =========================
 # Camera Setup
@@ -69,6 +76,7 @@ while True:
     frame_cy = h // 2
 
     command = "SEARCH"
+    distance_cm = None
 
     if contours:
         gate = max(contours, key=cv.contourArea)
@@ -82,6 +90,18 @@ while True:
             # Draw gate and center
             cv.rectangle(frame, (x, y), (x + bw, y + bh), (0, 255, 0), 2)
             cv.circle(frame, (gate_cx, gate_cy), 5, (0, 0, 255), -1)
+
+            # -------------------------
+            # Distance Estimation
+            # -------------------------
+            if FOCAL_LENGTH is None:
+                # Calibrate once using known distance
+                FOCAL_LENGTH = (bw * KNOWN_DISTANCE) / REAL_GATE_WIDTH
+
+            distance_cm = (REAL_GATE_WIDTH * FOCAL_LENGTH) / bw
+
+            cv.putText(frame, f"Distance: {int(distance_cm)} cm", (10, 60),
+                       cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
 
             # -------------------------
             # 2D Alignment Logic
@@ -115,9 +135,6 @@ while True:
 
     cv.imshow("Frame", frame)
     cv.imshow("Mask", mask)
-
-    # Uncomment to print commands in terminal
-    # print(command)
 
     # Press Q to quit
     if cv.waitKey(20) & 0xFF == ord('q'):
