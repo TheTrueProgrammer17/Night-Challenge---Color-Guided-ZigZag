@@ -6,4 +6,8 @@
 4. ROV should pass only through the assigned color gates  
 5. ROV must avoid touching the gates
 
-This is the code for 2D gate detection based on the color (Blue, Red, Green, Yellow).
+This is the code for 2D gate detection based on the color (Blue, Red, Green, Yellow) and also provides
+distance estimation between ROV and the colored gate. 
+
+It also generates commands such as MOVE UP, MOVE DOWN, MOVE RIGHT, MOVE LEFT and CENTERED.
+
