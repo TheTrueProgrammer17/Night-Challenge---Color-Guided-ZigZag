@@ -2,7 +2,7 @@ import cv2 as cv
 import numpy as np
 
 # =========================
-# Assigned Color
+# Assigned Target Color
 # =========================
 ASSIGNED_COLOR = "blue"   # Change this to "red", "green", or "yellow" as needed
 
@@ -10,19 +10,11 @@ ASSIGNED_COLOR = "blue"   # Change this to "red", "green", or "yellow" as needed
 # HSV Color Ranges
 # =========================
 COLOR_RANGES = {
-    "blue": [
-        (np.array([100, 120, 50]), np.array([140, 255, 255]))
-    ],
-    "red": [
-        (np.array([0, 100, 50]), np.array([10, 255, 255])),
-        (np.array([165, 100, 50]), np.array([180, 255, 255]))
-    ],
-    "green": [
-        (np.array([40, 70, 70]), np.array([80, 255, 255]))
-    ],
-    "yellow": [
-        (np.array([20, 100, 100]), np.array([35, 255, 255]))
-    ]
+    "blue":   [(np.array([100, 120, 50]), np.array([140, 255, 255]))],
+    "red":    [(np.array([0, 100, 50]), np.array([10, 255, 255])),
+               (np.array([165, 100, 50]), np.array([180, 255, 255]))],
+    "green":  [(np.array([40, 70, 70]), np.array([80, 255, 255]))],
+    "yellow": [(np.array([20, 100, 100]), np.array([35, 255, 255]))]
 }
 
 # =========================
@@ -39,8 +31,10 @@ cap = cv.VideoCapture(0)
 
 cv.namedWindow("Frame", cv.WINDOW_NORMAL)
 cv.namedWindow("Mask", cv.WINDOW_NORMAL)
+cv.namedWindow("Edges", cv.WINDOW_NORMAL)
 cv.resizeWindow("Frame", 800, 600)
 cv.resizeWindow("Mask", 400, 300)
+cv.resizeWindow("Edges", 400, 300)
 
 while True:
     ret, frame = cap.read()
@@ -52,77 +46,87 @@ while True:
     # -------------------------
     frame = cv.GaussianBlur(frame, (5, 5), 0)
     hsv = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
-
-    # -------------------------
-    # Mask (dynamic for assigned color)
-    # -------------------------
-    mask = None
-    for lower, upper in COLOR_RANGES[ASSIGNED_COLOR]:
-        temp_mask = cv.inRange(hsv, lower, upper)
-        mask = temp_mask if mask is None else cv.bitwise_or(mask, temp_mask)
-
-    # Morphological cleanup
-    kernel = np.ones((5, 5), np.uint8)
-    mask = cv.morphologyEx(mask, cv.MORPH_OPEN, kernel)
-    mask = cv.morphologyEx(mask, cv.MORPH_DILATE, kernel)
-
-    # -------------------------
-    # Contours
-    # -------------------------
-    contours, _ = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
+    gray = cv.GaussianBlur(gray, (5, 5), 0)
 
     h, w, _ = frame.shape
-    frame_cx = w // 2
-    frame_cy = h // 2
+    frame_cx, frame_cy = w // 2, h // 2
 
+    detections = {}   # store all detected gates
+    combined_mask = np.zeros((h, w), dtype=np.uint8)
+
+    # -------------------------
+    # Detect all colors
+    # -------------------------
+    for color_name, ranges in COLOR_RANGES.items():
+        mask = None
+        for lower, upper in ranges:
+            temp_mask = cv.inRange(hsv, lower, upper)
+            mask = temp_mask if mask is None else cv.bitwise_or(mask, temp_mask)
+
+        edges = cv.Canny(gray, 50, 150)
+
+        # Morphological cleanup
+        kernel = np.ones((5, 5), np.uint8)
+        mask = cv.morphologyEx(mask, cv.MORPH_OPEN, kernel)
+        mask = cv.morphologyEx(mask, cv.MORPH_DILATE, kernel)
+
+        combined_mask = cv.bitwise_or(combined_mask, mask)
+
+        # Find contours for this color
+        contours, _ = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+        if contours:
+            gate = max(contours, key=cv.contourArea)
+            area = cv.contourArea(gate)
+            if area > 500:
+                x, y, bw, bh = cv.boundingRect(gate)
+                cx, cy = x + bw // 2, y + bh // 2
+
+                # Draw gate
+                cv.rectangle(frame, (x, y), (x + bw, y + bh), (0, 255, 0), 2)
+                cv.putText(frame, color_name, (x, y - 10),
+                           cv.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+
+                detections[color_name] = {"cx": cx, "cy": cy, "bw": bw, "bh": bh}
+
+    # -------------------------
+    # Navigation logic for assigned color
+    # -------------------------
     command = "SEARCH"
     distance_cm = None
 
-    if contours:
-        gate = max(contours, key=cv.contourArea)
-        area = cv.contourArea(gate)
+    if ASSIGNED_COLOR in detections:
+        target = detections[ASSIGNED_COLOR]
+        gate_cx, gate_cy, bw = target["cx"], target["cy"], target["bw"]
 
-        if area > 500:  # Ignore tiny blobs
-            x, y, bw, bh = cv.boundingRect(gate)
-            gate_cx = x + bw // 2
-            gate_cy = y + bh // 2
+        cv.circle(frame, (gate_cx, gate_cy), 5, (0, 0, 255), -1)
 
-            # Draw gate and center
-            cv.rectangle(frame, (x, y), (x + bw, y + bh), (0, 255, 0), 2)
-            cv.circle(frame, (gate_cx, gate_cy), 5, (0, 0, 255), -1)
+        # Distance estimation
+        if FOCAL_LENGTH is None:
+            FOCAL_LENGTH = (bw * KNOWN_DISTANCE) / REAL_GATE_WIDTH
+        distance_cm = (REAL_GATE_WIDTH * FOCAL_LENGTH) / bw
 
-            # -------------------------
-            # Distance Estimation
-            # -------------------------
-            if FOCAL_LENGTH is None:
-                # Calibrate once using known distance
-                FOCAL_LENGTH = (bw * KNOWN_DISTANCE) / REAL_GATE_WIDTH
+        cv.putText(frame, f"Distance: {int(distance_cm)} cm", (10, 60),
+                   cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
 
-            distance_cm = (REAL_GATE_WIDTH * FOCAL_LENGTH) / bw
+        # Alignment logic
+        dx = gate_cx - frame_cx
+        dy = gate_cy - frame_cy
 
-            cv.putText(frame, f"Distance: {int(distance_cm)} cm", (10, 60),
-                       cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-
-            # -------------------------
-            # 2D Alignment Logic
-            # -------------------------
-            dx = gate_cx - frame_cx
-            dy = gate_cy - frame_cy
-
-            if abs(dx) > abs(dy):
-                if dx > 40:
-                    command = "MOVE RIGHT"
-                elif dx < -40:
-                    command = "MOVE LEFT"
-                else:
-                    command = "CENTERED"
+        if abs(dx) > abs(dy):
+            if dx > 40:
+                command = "MOVE RIGHT"
+            elif dx < -40:
+                command = "MOVE LEFT"
             else:
-                if dy > 30:
-                    command = "MOVE UP"
-                elif dy < -30:
-                    command = "MOVE DOWN"
-                else:
-                    command = "CENTERED"
+                command = "CENTERED"
+        else:
+            if dy > 30:
+                command = "MOVE UP"
+            elif dy < -30:
+                command = "MOVE DOWN"
+            else:
+                command = "CENTERED"
 
     # -------------------------
     # Display
@@ -134,9 +138,9 @@ while True:
                cv.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
 
     cv.imshow("Frame", frame)
-    cv.imshow("Mask", mask)
+    cv.imshow("Mask", combined_mask)
+    cv.imshow("Edges", edges)
 
-    # Press Q to quit
     if cv.waitKey(20) & 0xFF == ord('q'):
         break
 
