@@ -10,12 +10,13 @@ ASSIGNED_COLOR = "blue"   # Change this to "red", "green", or "yellow" as needed
 # HSV Color Ranges
 # =========================
 COLOR_RANGES = {
-    "blue":   [(np.array([100, 120, 50]), np.array([140, 255, 255]))],
-    "red":    [(np.array([0, 100, 50]), np.array([10, 255, 255])),
-               (np.array([165, 100, 50]), np.array([180, 255, 255]))],
-    "green":  [(np.array([40, 70, 70]), np.array([80, 255, 255]))],
-    "yellow": [(np.array([20, 100, 100]), np.array([35, 255, 255]))]
+    "blue":   [(np.array([90, 80, 40]), np.array([140, 255, 255]))],
+    "red":    [(np.array([0, 80, 40]), np.array([10, 255, 255])),
+               (np.array([165, 80, 40]), np.array([180, 255, 255]))],
+    "green":  [(np.array([35, 60, 40]), np.array([85, 255, 255]))],
+    "yellow": [(np.array([15, 80, 40]), np.array([40, 255, 255]))]
 }
+
 
 # =========================
 # Distance Calibration
@@ -44,8 +45,21 @@ while True:
     # -------------------------
     # Preprocessing
     # -------------------------
-    frame = cv.GaussianBlur(frame, (5, 5), 0)
+    frame = cv.bilateralFilter(frame, d=9, sigmaColor=75, sigmaSpace=75)
+
+    # White balance / contrast enhancement
+    lab = cv.cvtColor(frame, cv.COLOR_BGR2LAB)
+    l, a, b = cv.split(lab)
+    clahe = cv.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+    l = clahe.apply(l)
+    lab = cv.merge((l,a,b))
+    frame = cv.cvtColor(lab, cv.COLOR_LAB2BGR) 
+
     hsv = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
+    h, s, v = cv.split(hsv)
+    v = cv.equalizeHist(v)
+    hsv = cv.merge((h, s, v))
+
     gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
     gray = cv.GaussianBlur(gray, (5, 5), 0)
 
